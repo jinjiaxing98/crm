@@ -41,12 +41,11 @@ class CrmLogin:
 
     def login(self):
         """登录MIS→CRM，从环境变量读取敏感信息"""
-        # 从Vercel环境变量读取账号密码（核心：无硬编码）
-        MIS_USERNAME = os.getenv("MIS_USERNAME")  # 环境变量名
+        # 从Vercel环境变量读取账号密码
+        MIS_USERNAME = os.getenv("MIS_USERNAME")
         MIS_PASSWORD = os.getenv("MIS_PASSWORD")
         CRM_PASSWORD = os.getenv("CRM_PASSWORD", "c7c70b6555dce9d057f2f9c30b5d0c6d")
 
-        # 校验环境变量是否配置
         if not MIS_USERNAME or not MIS_PASSWORD:
             raise Exception("❌ 未配置MIS账号/密码环境变量")
 
@@ -54,8 +53,8 @@ class CrmLogin:
         mis_login_url = "http://mis.offcn.com/index/login"
         mis_payload = {
             '_csrf': "QThtT292SUkmYl86Fz4zfwBpIx8GQCs6LU0BNgUuISZ3ZyM2FykxIA==",
-            'username': MIS_USERNAME,  # 环境变量
-            'password': MIS_PASSWORD,  # 环境变量
+            'username': MIS_USERNAME,
+            'password': MIS_PASSWORD,
             'submit': "Log In"
         }
         mis_headers = {
@@ -102,29 +101,29 @@ class CrmLogin:
         if not self.authorization:
             raise Exception("❌ 未获取到CRM授权令牌")
 
-        # 更新请求头（后续API复用）
+        # 更新请求头
         self.headers_template['authorization'] = self.authorization
         self.headers_template['Cookie'] = self.cookie
         return True
 
-# 核心接口：支持传入明文手机号（如13605130847）
+# 核心接口：适配实际返回格式 {"code":0, "message":"添加客户成功"}
 @app.get("/query_cust")
 async def query_cust_by_mobile(
     mobile: str = Query(..., description="明文手机号，例如：13605130847")
 ):
+    # 统一返回格式（和CRM API保持一致）
     result = {
-        "success": False,
-        "data": None,
+        "code": -1,  # 默认失败状态
         "message": ""
     }
     try:
-        # 自动登录CRM
+        # 1. 自动登录CRM
         crm = CrmLogin()
         crm.login()
         
-        # 核心调整：直接用明文手机号调用API
+        # 2. 调用querycust API（传入明文手机号）
         query_url = "https://crmbackend.offcn.com:6443/cust/cust/querycust"
-        query_payload = {"mobile": mobile, "weixin": None}  # mobile为明文
+        query_payload = {"mobile": mobile, "weixin": None}
         response = requests.post(
             query_url,
             data=json.dumps(query_payload),
@@ -133,20 +132,26 @@ async def query_cust_by_mobile(
             timeout=30
         )
 
-        # 处理响应结果
+        # 3. 适配CRM实际返回格式
         if response.status_code == 200:
-            result["success"] = True
-            result["data"] = response.json()
-            result["message"] = "✅ 查询成功（明文手机号）"
+            # 解析CRM返回的原始数据
+            crm_result = response.json()
+            # 直接复用CRM的code和message（保持格式统一）
+            result["code"] = crm_result.get("code", -1)
+            result["message"] = crm_result.get("message", "✅ 查询成功但未返回具体信息")
+            # 可选：额外返回原始数据（方便排查）
+            result["data"] = crm_result
         else:
-            result["message"] = f"❌ 查询失败：状态码{response.status_code}，响应：{response.text[:200]}"
+            result["code"] = response.status_code
+            result["message"] = f"❌ 查询失败：HTTP状态码{response.status_code}，响应：{response.text[:200]}"
 
     except Exception as e:
-        result["message"] = f"❌ 执行失败：{str(e)}"
+        result["code"] = -2
+        result["message"] = f"❌ 执行异常：{str(e)}"
     
     return JSONResponse(content=result)
 
-# Vercel Serverless适配（必须）
+# Vercel Serverless适配
 def handler(event, context):
     import mangum
     asgi_handler = mangum.Mangum(app)
