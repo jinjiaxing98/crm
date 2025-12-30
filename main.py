@@ -107,10 +107,10 @@ class CrmLogin:
         self.headers_template['Cookie'] = self.cookie
         return True
 
-# 核心接口：传入手机号参数（网址后拼接?mobile=加密手机号）
+# 核心接口：支持传入明文手机号（如13605130847）
 @app.get("/query_cust")
 async def query_cust_by_mobile(
-    mobile: str = Query(..., description="加密手机号，例如：FNYXw+jiucnwbGyazcKTmQ==")
+    mobile: str = Query(..., description="明文手机号，例如：13605130847")
 ):
     result = {
         "success": False,
@@ -122,9 +122,9 @@ async def query_cust_by_mobile(
         crm = CrmLogin()
         crm.login()
         
-        # 调用querycust API（传入你输入的手机号参数）
+        # 核心调整：直接用明文手机号调用API
         query_url = "https://crmbackend.offcn.com:6443/cust/cust/querycust"
-        query_payload = {"mobile": mobile, "weixin": None}
+        query_payload = {"mobile": mobile, "weixin": None}  # mobile为明文
         response = requests.post(
             query_url,
             data=json.dumps(query_payload),
@@ -137,7 +137,7 @@ async def query_cust_by_mobile(
         if response.status_code == 200:
             result["success"] = True
             result["data"] = response.json()
-            result["message"] = "✅ 查询成功"
+            result["message"] = "✅ 查询成功（明文手机号）"
         else:
             result["message"] = f"❌ 查询失败：状态码{response.status_code}，响应：{response.text[:200]}"
 
